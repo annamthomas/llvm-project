@@ -362,9 +362,9 @@ bool llvm::isDereferenceableAndAlignedInLoop(
     AccessSizeSCEV = PtrDiff;
   } else if (auto *MinAdd = dyn_cast<SCEVAddExpr>(AccessStart)) {
     const auto *NewBase = dyn_cast<SCEVUnknown>(SE.getPointerBase(MinAdd));
-    const auto *OffsetSCEV = SE.removePointerBase(MinAdd);
+    auto *OffsetSCEV = SE.removePointerBase(MinAdd);
 
-    if (!OffsetSCEV || !NewBase)
+    if (!NewBase)
       return false;
 
     if (!SE.isKnownNonNegative(OffsetSCEV))
@@ -374,16 +374,12 @@ bool llvm::isDereferenceableAndAlignedInLoop(
     // multiple of the requested alignment and the base is aligned.
     // TODO: generalize if a case found which warrants
     auto *OffsetSCEVTy = OffsetSCEV->getType();
-    if (!SE.isKnownPredicate(
-            ICmpInst::ICMP_EQ,
-            SE.getURemExpr(OffsetSCEV,
-                           SE.getConstant(OffsetSCEVTy, Alignment.value())),
-            SE.getZero(OffsetSCEVTy)))
+    if (!SE.getConstantMultiple(OffsetSCEV)
+             .urem(APInt(OffsetSCEVTy->getIntegerBitWidth(), Alignment.value()))
+             .isZero())
       return false;
+    AccessSize = MaxPtrDiff + SE.getUnsignedRangeMax(OffsetSCEV);
     AccessSizeSCEV = SE.getAddExpr(PtrDiff, OffsetSCEV);
-    const auto *Offset = dyn_cast<SCEVConstant>(OffsetSCEV);
-    AccessSize = MaxPtrDiff + (Offset ? Offset->getAPInt()
-                                      : SE.getUnsignedRangeMax(OffsetSCEV));
     Base = NewBase->getValue();
   } else
     return false;
